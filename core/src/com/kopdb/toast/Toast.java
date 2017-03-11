@@ -1,5 +1,6 @@
 package com.kopdb.toast;
 
+import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.audio.Sound;
 import com.badlogic.gdx.graphics.g2d.Sprite;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
@@ -23,6 +24,7 @@ public class Toast implements Disposable
     private Vector2 lastPosition;
     private Vector2 newPos;
     private Vector2 origin;
+    private Vector2 flickStartPos;
     private long touchTime;
     private long lastTouchTime;
     private String type;
@@ -30,7 +32,8 @@ public class Toast implements Disposable
     private Sound flickSound;
     private boolean flicked = false;
     private boolean curBodyNeedsToSlow = false;
-    private int earlyFrameFlickCounter = 0;
+    private float flickTimeCounter = 0;
+    private final float FLICK_TIME_MAX = 0.4f;
 
     private int tmpCnt = 0;
 
@@ -86,24 +89,14 @@ public class Toast implements Disposable
                     (moveTarget.x - body.getPosition().x - body.getLinearVelocity().x * 0.08f) * 3f,
                     (moveTarget.y - body.getPosition().y - body.getLinearVelocity().y * 0.08f) * 1.5f);
 
-            // check whether we are flicking and whether
-            if (body.getLinearVelocity().len2() >= FLICK_THRESHOLD) {
-                flicked = true;
-            } else if (body.getLinearVelocity().len2() <= 0.2f) {
-                flicked = false;
-                earlyFrameFlickCounter = 0;
+            // Increase or clear the flickTimeCounter based on whether we are flicking or not
+            if (body.getLinearVelocity().len2() <= 0.01f) {
+                flickTimeCounter = 0;
+            } else {
+                flickTimeCounter += Gdx.graphics.getDeltaTime();
             }
 
-            if (flicked && earlyFrameFlickCounter < 10) {
-                impulseAmount.x *= 3;
-                impulseAmount.y *= 3;
-                earlyFrameFlickCounter += 1;
-            }
-
-//            newPos = body.getPosition().add(new Vector2((moveTarget.x - body.getPosition().x) * 0.6f,
-//                    (moveTarget.y - body.getPosition().y) * 0.2f)) ;
             newPos = body.getPosition();
-//            body.setTransform(newPos.x, newPos.y, body.getAngle());
             body.applyLinearImpulse(impulseAmount, body.getWorldCenter(), true);
         }
 
@@ -123,6 +116,7 @@ public class Toast implements Disposable
             touchOffset = body.getPosition().cpy().scl(1 / ToastGame.BOX_2D_SCALE).sub(x, y);
             // where we want the toast to move to
             moveTarget = new Vector2(x + touchOffset.x, y + touchOffset.y);
+            flickStartPos = moveTarget.cpy();
             moveTarget.scl(ToastGame.BOX_2D_SCALE);
             // remember moveTarget
             lastPosition = body.getPosition().cpy();
@@ -143,6 +137,27 @@ public class Toast implements Disposable
     public void checkTouchUp(int x, int y) {
         if (moveTarget != null) {
 
+            touchOffset = body.getPosition().cpy().scl(1 / ToastGame.BOX_2D_SCALE).sub(x, y);
+            moveTarget = new Vector2(x + touchOffset.x, y + touchOffset.y);
+            moveTarget = new Vector2(x, y);
+
+            // also the
+            Vector2 dragAmount = new Vector2(0, 0);
+            dragAmount.add(moveTarget).sub(flickStartPos);
+
+            // Do not flick if the dragAmount was small
+            if (flickTimeCounter < FLICK_TIME_MAX && dragAmount.len() > 50f) {
+               // set velocity based on position relative to initial pos / time
+                // soft cap on scaleVal to prevent excessive speed of toast
+                float scaleVal = 0.005f / ((flickTimeCounter + 0.055f) / 2f);
+                scaleVal = scaleVal > 100
+                        ? 100 + Math.min((float) Math.sqrt(scaleVal - 100), 130)
+                        : scaleVal;
+
+                dragAmount.scl(scaleVal);
+                body.setLinearVelocity(dragAmount);
+            }
+
             // decide whether the release counted as a flick
             if (body.getLinearVelocity().len2() >= FLICK_THRESHOLD) {
                 flicked = true;
@@ -151,7 +166,8 @@ public class Toast implements Disposable
             }
 
             moveTarget = null;
-            earlyFrameFlickCounter = 0;
+            flickStartPos = null;
+            flickTimeCounter = 0;
         }
     }
 
